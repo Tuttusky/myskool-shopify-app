@@ -1,6 +1,5 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import {
-  json,
   unstable_createMemoryUploadHandler,
   unstable_parseMultipartFormData,
 } from "@remix-run/node";
@@ -20,8 +19,7 @@ function jsonWithCors(data: unknown, init?: ResponseInit) {
   const headers = new Headers(init?.headers);
   const c = corsHeaders();
   Object.entries(c).forEach(([k, v]) => headers.set(k, String(v)));
-  // Use Remix `json()` — `Response.json()` is not available on all Node runtimes.
-  return json(data, { ...init, headers });
+  return Response.json(data, { ...init, headers });
 }
 
 async function getAdminClient(request: Request) {
@@ -67,6 +65,23 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return jsonWithCors({ error: "Method not allowed" }, { status: 405 });
   }
 
+  try {
+    return await handleUploadPost(request);
+  } catch (error) {
+    console.error("[api.upload-photo]", error);
+    const message =
+      error instanceof Error ? error.message : "Unexpected server error";
+    return jsonWithCors(
+      {
+        error: message,
+        hint: "Check Railway logs. If the response was HTML, verify App Proxy URL and deploy.",
+      },
+      { status: 500 },
+    );
+  }
+};
+
+async function handleUploadPost(request: Request) {
   const admin = await getAdminClient(request);
   if (!admin) {
     return jsonWithCors(
@@ -260,4 +275,4 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   return jsonWithCors({ cdnUrl, fileId }, { status: 200 });
-};
+}

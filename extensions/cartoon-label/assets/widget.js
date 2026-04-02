@@ -675,11 +675,23 @@ const MySkoolWidget = {
         "Failed to reach upload server (network/CORS). Use your shop App Proxy URL: …/apps/myskool/api/upload-photo — deploy the app after enabling App Proxy.",
       );
     }
+    var text = await res.text();
     var data = null;
-    try {
-      data = await res.json();
-    } catch (e) {
-      throw new Error("Invalid response from upload server.");
+    if (text) {
+      try {
+        data = JSON.parse(text);
+      } catch (parseErr) {
+        var preview = text.replace(/\s+/g, " ").slice(0, 160);
+        throw new Error(
+          "Upload server returned non-JSON (HTTP " +
+            res.status +
+            "). " +
+            (preview || "(empty body)") +
+            (res.status === 404
+              ? " — wrong URL or App Proxy not deployed."
+              : ""),
+        );
+      }
     }
     if (!res.ok) {
       var errMsg = (data && data.error) || "Upload failed.";
