@@ -1,9 +1,9 @@
 /**
  * Myskool personalised label widget — vanilla JS (storefront Theme App Extension)
- * Default API host must return JSON (Remix /api/upload-photo). Shop /apps/... URLs return HTML if App Proxy is not active.
+ * Uses Shopify App Proxy for uploads: same-origin avoids CORS entirely.
+ * The proxy must be deployed (`shopify app deploy`) for this path to resolve.
  */
-var DEFAULT_DIRECT_UPLOAD_API =
-  "https://myskool-shopify-app-production.up.railway.app/api/upload-photo";
+var APP_PROXY_UPLOAD_PATH = "/apps/myskool/api/upload-photo";
 
 const MySkoolWidget = {
   state: {
@@ -59,7 +59,7 @@ const MySkoolWidget = {
     this._els.root = root;
     var rawUrl = root.getAttribute("data-api-url");
     this.state.apiUrl =
-      (rawUrl && String(rawUrl).trim()) || DEFAULT_DIRECT_UPLOAD_API;
+      (rawUrl && String(rawUrl).trim()) || APP_PROXY_UPLOAD_PATH;
     var btnLabel = root.getAttribute("data-button-label") || "Personalise This";
     this.state.productId = root.getAttribute("data-product-id");
     var vid = root.getAttribute("data-variant-id");
@@ -655,17 +655,22 @@ const MySkoolWidget = {
     }
     var fd = new FormData();
     fd.append("file", file);
+    var isCrossOrigin =
+      this.state.apiUrl.indexOf("http://") === 0 ||
+      this.state.apiUrl.indexOf("https://") === 0;
     var res;
     try {
       res = await fetch(this.state.apiUrl, {
         method: "POST",
         body: fd,
-        credentials: "omit",
-        mode: "cors",
+        credentials: isCrossOrigin ? "omit" : "same-origin",
+        mode: isCrossOrigin ? "cors" : "same-origin",
       });
     } catch (networkErr) {
       throw new Error(
-        "Failed to reach upload server (network/CORS). Use your shop App Proxy URL: …/apps/myskool/api/upload-photo — deploy the app after enabling App Proxy.",
+        isCrossOrigin
+          ? "Upload server unreachable (CORS blocked). Switch to the App Proxy path /apps/myskool/api/upload-photo and run shopify app deploy."
+          : "Upload failed — is the App Proxy deployed? Run: shopify app deploy",
       );
     }
     var text = await res.text();

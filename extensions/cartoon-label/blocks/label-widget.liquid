@@ -2,9 +2,10 @@
 <script src="{{ 'widget.js' | asset_url }}" defer></script>
 
 {% comment %}
-  Default must hit the Remix app JSON API. Shop URLs like …/apps/myskool/… return HTML (theme) until App Proxy is fully configured — that caused "non-JSON HTTP 200".
+  App Proxy path: same-origin from the storefront, no CORS.
+  Requires `shopify app deploy` so Shopify routes /apps/myskool/* → Railway.
 {% endcomment %}
-{% assign default_upload_url = 'https://myskool-shopify-app-production.up.railway.app/api/upload-photo' %}
+{% assign default_upload_url = '/apps/myskool/api/upload-photo' %}
 
 <div
   id="myskool-widget-root"
@@ -26,7 +27,7 @@
       "type": "url",
       "id": "photo_upload_api_url",
       "label": "Photo upload API URL",
-      "info": "Leave blank to use the hosted API (JSON). Use your-shop.myshopify.com/apps/myskool/api/upload-photo only after App Proxy is deployed and verified — otherwise the store returns HTML."
+      "info": "Leave blank to use the App Proxy (/apps/myskool/api/upload-photo). Only override if using a direct external URL."
     },
     {
       "type": "text",
