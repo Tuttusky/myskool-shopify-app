@@ -5,11 +5,13 @@ import {
 } from "@remix-run/node";
 import { authenticate } from "../shopify.server";
 
-function corsHeaders() {
+function corsHeaders(): Record<string, string> {
   return {
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type",
+    "Access-Control-Allow-Headers":
+      "Content-Type, Accept, Authorization, X-Requested-With, X-Shopify-Access-Token",
+    "Access-Control-Max-Age": "86400",
   };
 }
 
@@ -27,10 +29,15 @@ async function getAdminClient(request: Request) {
       return proxy.admin;
     }
   } catch {
-    // fall through to session auth
+    // Not an app proxy request (e.g. direct hit to Railway)
   }
-  const { admin } = await authenticate.admin(request);
-  return admin;
+  try {
+    const { admin } = await authenticate.admin(request);
+    return admin;
+  } catch {
+    // Redirect to login / invalid session — no CORS on thrown Response → browser shows "Failed to fetch"
+    return null;
+  }
 }
 
 /**
@@ -58,14 +65,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     return jsonWithCors({ error: "Method not allowed" }, { status: 405 });
   }
 
-  let admin;
-  try {
-    admin = await getAdminClient(request);
-  } catch (error) {
-    if (error instanceof Response) {
-      return jsonWithCors({ error: "Unauthorized" }, { status: 401 });
-    }
-    throw error;
+  const admin = await getAdminClient(request);
+  if (!admin) {
+    return jsonWithCors(
+      {
+        error: "Unauthorized",
+        hint:
+          "Use the App Proxy URL from the storefront (…/apps/myskool/api/upload-photo), not a direct Railway URL.",
+      },
+      { status: 401 },
+    );
   }
 
   const uploadHandler = unstable_createMemoryUploadHandler({

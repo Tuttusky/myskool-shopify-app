@@ -7,7 +7,6 @@ embedded = true
 
 [build]
 automatically_update_urls_on_dev = true
-include_config_on_deploy = true
 
 [webhooks]
 api_version = "2026-07"
@@ -27,3 +26,10 @@ scopes = "write_products,read_orders,write_files"
 
 [auth]
 redirect_urls = [ "https://myskool-shopify-app-production.up.railway.app/auth/callback" ]
+
+# Storefront uploads: https://{shop}/apps/myskool/api/upload-photo → same-origin (avoids CORS "Failed to fetch")
+# https://shopify.dev/docs/apps/build/online-store/display-dynamic-data
+[app_proxy]
+url = "https://myskool-shopify-app-production.up.railway.app"
+prefix = "apps"
+subpath = "myskool"

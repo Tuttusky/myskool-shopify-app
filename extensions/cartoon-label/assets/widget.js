@@ -1,6 +1,11 @@
 /**
  * Myskool personalised label widget — vanilla JS (storefront Theme App Extension)
+ * Prefer App Proxy path /apps/myskool/api/upload-photo (same origin as the shop) to avoid CORS.
  */
+var APP_PROXY_SUFFIX = "/apps/myskool/api/upload-photo";
+var DEFAULT_DIRECT_UPLOAD_API =
+  "https://myskool-shopify-app-production.up.railway.app/api/upload-photo";
+
 const MySkoolWidget = {
   state: {
     screen: "tips",
@@ -53,7 +58,15 @@ const MySkoolWidget = {
     var root = document.getElementById("myskool-widget-root");
     if (!root) return;
     this._els.root = root;
-    this.state.apiUrl = root.getAttribute("data-api-url") || "";
+    var rawUrl = root.getAttribute("data-api-url");
+    var shopOrigin = root.getAttribute("data-shop-origin");
+    var fallbackUrl = DEFAULT_DIRECT_UPLOAD_API;
+    if (shopOrigin && String(shopOrigin).trim()) {
+      fallbackUrl =
+        String(shopOrigin).replace(/\/$/, "") + APP_PROXY_SUFFIX;
+    }
+    this.state.apiUrl =
+      (rawUrl && String(rawUrl).trim()) || fallbackUrl;
     var btnLabel = root.getAttribute("data-button-label") || "Personalise This";
     this.state.productId = root.getAttribute("data-product-id");
     var vid = root.getAttribute("data-variant-id");
@@ -649,12 +662,19 @@ const MySkoolWidget = {
     }
     var fd = new FormData();
     fd.append("file", file);
-    var res = await fetch(this.state.apiUrl, {
-      method: "POST",
-      body: fd,
-      credentials: "omit",
-      mode: "cors",
-    });
+    var res;
+    try {
+      res = await fetch(this.state.apiUrl, {
+        method: "POST",
+        body: fd,
+        credentials: "omit",
+        mode: "cors",
+      });
+    } catch (networkErr) {
+      throw new Error(
+        "Failed to reach upload server (network/CORS). Use your shop App Proxy URL: …/apps/myskool/api/upload-photo — deploy the app after enabling App Proxy.",
+      );
+    }
     var data = null;
     try {
       data = await res.json();
@@ -662,7 +682,11 @@ const MySkoolWidget = {
       throw new Error("Invalid response from upload server.");
     }
     if (!res.ok) {
-      throw new Error((data && data.error) || "Upload failed.");
+      var errMsg = (data && data.error) || "Upload failed.";
+      if (data && data.hint) {
+        errMsg = errMsg + " " + data.hint;
+      }
+      throw new Error(errMsg);
     }
     if (!data.cdnUrl) {
       throw new Error("Upload did not return a URL.");
