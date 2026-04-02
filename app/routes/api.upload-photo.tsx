@@ -311,7 +311,7 @@ async function handleUploadPost(request: Request) {
   }
 
   const created = createJson.data?.fileCreate?.files?.[0];
-  const cdnUrl = created?.image?.url;
+  const cdnUrl = created?.image?.url || target.resourceUrl;
   const fileId = created?.id;
   if (!cdnUrl) {
     const gqlErr = createJson.errors?.map((e) => e.message).join("; ");
