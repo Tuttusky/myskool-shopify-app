@@ -176,7 +176,7 @@ async function handleUploadPost(request: Request) {
   const mimeType = file.type || "application/octet-stream";
   const filename = file.name || "upload.bin";
 
-  // Stage the upload
+  // Stage the upload — resource must be IMAGE for photos
   const stagedRes = await admin.graphql(
     `mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
       stagedUploadsCreate(input: $input) {
@@ -194,7 +194,8 @@ async function handleUploadPost(request: Request) {
           {
             filename,
             mimeType,
-            resource: "FILE",
+            resource: "IMAGE",
+            httpMethod: "POST",
             fileSize: String(buffer.byteLength),
           },
         ],
@@ -234,22 +235,40 @@ async function handleUploadPost(request: Request) {
     );
   }
 
-  // PUT file bytes to the staged target
-  const uploadForm = new FormData();
-  for (const p of target.parameters) {
-    uploadForm.append(p.name, p.value);
-  }
-  uploadForm.append("file", new Blob([buffer], { type: mimeType }), filename);
+  // Upload file bytes to the staged target
+  let uploadHttp: Response;
+  const params = target.parameters ?? [];
 
-  const uploadHttp = await fetch(target.url, {
-    method: "POST",
-    body: uploadForm,
-  });
+  if (params.length > 0) {
+    // POST with multipart form data (S3-style) — params first, file last
+    const uploadForm = new FormData();
+    for (const p of params) {
+      uploadForm.append(p.name, p.value);
+    }
+    uploadForm.append("file", new Blob([buffer], { type: mimeType }), filename);
+    uploadHttp = await fetch(target.url, { method: "POST", body: uploadForm });
+  } else {
+    // PUT with raw body (GCS-style signed URL)
+    uploadHttp = await fetch(target.url, {
+      method: "PUT",
+      headers: { "Content-Type": mimeType },
+      body: buffer,
+    });
+  }
 
   if (!uploadHttp.ok) {
     const text = await uploadHttp.text();
+    console.error(
+      "[upload] Staged upload failed:",
+      uploadHttp.status,
+      target.url.slice(0, 80),
+      text.slice(0, 300),
+    );
     return jsonWithCors(
-      { error: `Staged upload HTTP ${uploadHttp.status}`, detail: text.slice(0, 500) },
+      {
+        error: `Staged upload HTTP ${uploadHttp.status}`,
+        detail: text.slice(0, 500),
+      },
       { status: 502 },
     );
   }
