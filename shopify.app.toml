@@ -2,7 +2,7 @@
 
 client_id = "81bdec97937ef80835571f206c16b087"
 name = "myskool-2026"
-application_url = "https://shopify.dev/apps/default-app-home"
+application_url = "https://myskool-shopify-app-production.up.railway.app"
 embedded = true
 
 [build]
@@ -25,4 +25,4 @@ api_version = "2026-07"
 scopes = ""
 
 [auth]
-redirect_urls = [ "https://shopify.dev/apps/default-app-home/api/auth" ]
+redirect_urls = [ "https://myskool-shopify-app-production.up.railway.app/auth/callback" ]
