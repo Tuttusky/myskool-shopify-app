@@ -3,7 +3,7 @@ import {
   unstable_createMemoryUploadHandler,
   unstable_parseMultipartFormData,
 } from "@remix-run/node";
-import { authenticate } from "../shopify.server";
+import { authenticate, unauthenticated } from "../shopify.server";
 
 function corsHeaders(): Record<string, string> {
   return {
@@ -26,8 +26,19 @@ function jsonWithCors(data: unknown, init?: ResponseInit) {
   });
 }
 
+function extractShopDomain(request: Request): string | null {
+  const url = new URL(request.url);
+  const fromParam = url.searchParams.get("shop");
+  if (fromParam) return fromParam;
+  const referer = request.headers.get("referer") || request.headers.get("origin") || "";
+  const match = referer.match(/([a-z0-9-]+\.myshopify\.com)/i);
+  return match ? match[1] : null;
+}
+
 async function getAdminClient(request: Request) {
   const url = new URL(request.url);
+
+  // 1. App Proxy auth (storefront → Shopify → Railway, includes HMAC signature)
   try {
     const proxy = await authenticate.public.appProxy(request);
     if (proxy.admin) {
@@ -35,26 +46,48 @@ async function getAdminClient(request: Request) {
       return proxy.admin;
     }
     console.warn(
-      "[api.upload-photo] App Proxy auth OK but admin is null — shop may not have installed the app or offline token expired. Shop:",
+      "[api.upload-photo] App Proxy auth OK but admin is null. Shop:",
       url.searchParams.get("shop") || "(unknown)",
     );
   } catch (proxyErr) {
     console.log(
-      "[api.upload-photo] Not an App Proxy request or signature invalid:",
+      "[api.upload-photo] Not an App Proxy request:",
       proxyErr instanceof Error ? proxyErr.message : proxyErr,
     );
   }
+
+  // 2. Admin session (embedded admin iframe)
   try {
     const { admin } = await authenticate.admin(request);
     console.log("[api.upload-photo] Admin session auth OK");
     return admin;
   } catch (adminErr) {
-    console.warn(
-      "[api.upload-photo] Admin auth failed (expected for storefront requests):",
+    console.log(
+      "[api.upload-photo] Admin auth failed:",
       adminErr instanceof Error ? adminErr.message : adminErr,
     );
-    return null;
   }
+
+  // 3. Fallback: look up offline session by shop domain (direct Railway hit from storefront)
+  const shop = extractShopDomain(request);
+  if (shop) {
+    try {
+      const { admin } = await unauthenticated.admin(shop);
+      console.log("[api.upload-photo] Unauthenticated admin fallback OK for", shop);
+      return admin;
+    } catch (unauthedErr) {
+      console.warn(
+        "[api.upload-photo] Unauthenticated admin lookup failed for",
+        shop,
+        ":",
+        unauthedErr instanceof Error ? unauthedErr.message : unauthedErr,
+      );
+    }
+  } else {
+    console.warn("[api.upload-photo] No shop domain found in request — cannot use unauthenticated fallback");
+  }
+
+  return null;
 }
 
 /**

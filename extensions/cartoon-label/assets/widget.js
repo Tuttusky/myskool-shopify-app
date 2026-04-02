@@ -1,9 +1,10 @@
 /**
  * Myskool personalised label widget — vanilla JS (storefront Theme App Extension)
- * Uses Shopify App Proxy for uploads: same-origin avoids CORS entirely.
- * The proxy must be deployed (`shopify app deploy`) for this path to resolve.
+ * Tries App Proxy first (same-origin), falls back to direct Railway URL with ?shop= param.
  */
 var APP_PROXY_UPLOAD_PATH = "/apps/myskool/api/upload-photo";
+var DIRECT_RAILWAY_URL =
+  "https://myskool-shopify-app-production.up.railway.app/api/upload-photo";
 
 const MySkoolWidget = {
   state: {
@@ -17,6 +18,7 @@ const MySkoolWidget = {
     rollNo: "",
     theme: "animal",
     apiUrl: "",
+    shopOrigin: "",
     variantId: null,
     productId: null,
   },
@@ -60,6 +62,7 @@ const MySkoolWidget = {
     var rawUrl = root.getAttribute("data-api-url");
     this.state.apiUrl =
       (rawUrl && String(rawUrl).trim()) || APP_PROXY_UPLOAD_PATH;
+    this.state.shopOrigin = root.getAttribute("data-shop-origin") || "";
     var btnLabel = root.getAttribute("data-button-label") || "Personalise This";
     this.state.productId = root.getAttribute("data-product-id");
     var vid = root.getAttribute("data-variant-id");
@@ -718,10 +721,87 @@ const MySkoolWidget = {
     };
   },
 
+  _xhrUpload(url, fileBlob, progress, isCrossOrigin) {
+    var self = this;
+    return new Promise(function (resolve, reject) {
+      var fd = new FormData();
+      fd.append("file", fileBlob);
+
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", url, true);
+      if (!isCrossOrigin) {
+        xhr.withCredentials = true;
+      }
+      xhr.upload.onprogress = function (e) {
+        if (e.lengthComputable && progress) {
+          var pct = 5 + (e.loaded / e.total) * 85;
+          progress.setPercent(pct);
+          progress.setText("Uploading\u2026 " + Math.round(pct) + "%");
+        }
+      };
+      xhr.onload = function () {
+        if (progress) {
+          progress.setPercent(95);
+          progress.setText("Processing\u2026");
+        }
+        var text = xhr.responseText;
+        var data = null;
+        if (text) {
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            var preview = text.replace(/\s+/g, " ").slice(0, 160);
+            return reject({
+              status: xhr.status,
+              message:
+                "Server returned non-JSON (HTTP " + xhr.status + "): " + preview,
+            });
+          }
+        }
+        if (xhr.status < 200 || xhr.status >= 300) {
+          var errMsg =
+            (data && data.error) || "Upload failed (HTTP " + xhr.status + ")";
+          if (data && data.hint) errMsg = errMsg + " \u2014 " + data.hint;
+          return reject({ status: xhr.status, message: errMsg });
+        }
+        if (!data || !data.cdnUrl) {
+          return reject({
+            status: xhr.status,
+            message:
+              (data && data.error) || "Upload did not return an image URL.",
+          });
+        }
+        self.state.uploadedCdnUrl = data.cdnUrl;
+        resolve(data.cdnUrl);
+      };
+      xhr.onerror = function () {
+        reject({
+          status: 0,
+          message: isCrossOrigin
+            ? "Upload server unreachable (CORS)."
+            : "Network error during upload.",
+        });
+      };
+      xhr.ontimeout = function () {
+        reject({ status: 0, message: "Upload timed out. Try a smaller photo." });
+      };
+      xhr.timeout = 60000;
+      xhr.send(fd);
+    });
+  },
+
+  _directUploadUrl() {
+    var shop =
+      this.state.shopOrigin
+        .replace(/^https?:\/\//, "")
+        .replace(/\/+$/, "") || window.location.hostname;
+    return DIRECT_RAILWAY_URL + "?shop=" + encodeURIComponent(shop);
+  },
+
   uploadPhoto(file, progressParent) {
     var self = this;
     if (!this.state.apiUrl) {
-      this.showToast("Configure Photo upload API URL in theme editor", "error");
+      this.showToast("Photo upload URL is not configured.", "error");
       return Promise.reject(new Error("Photo upload URL is not configured."));
     }
     var progress = progressParent ? this._showProgress(progressParent) : null;
@@ -731,67 +811,34 @@ const MySkoolWidget = {
         progress.setText("Uploading photo\u2026");
         progress.setPercent(5);
       }
-      return new Promise(function (resolve, reject) {
-        var fd = new FormData();
-        fd.append("file", compressed);
-        var isCrossOrigin =
-          self.state.apiUrl.indexOf("http://") === 0 ||
-          self.state.apiUrl.indexOf("https://") === 0;
 
-        var xhr = new XMLHttpRequest();
-        xhr.open("POST", self.state.apiUrl, true);
-        if (!isCrossOrigin) {
-          xhr.withCredentials = true;
-        }
-        xhr.upload.onprogress = function (e) {
-          if (e.lengthComputable && progress) {
-            var pct = 5 + (e.loaded / e.total) * 85;
-            progress.setPercent(pct);
-            progress.setText(
-              "Uploading\u2026 " + Math.round(pct) + "%"
-            );
+      var primaryUrl = self.state.apiUrl;
+      var primaryCross =
+        primaryUrl.indexOf("http://") === 0 ||
+        primaryUrl.indexOf("https://") === 0;
+
+      return self
+        ._xhrUpload(primaryUrl, compressed, progress, primaryCross)
+        .catch(function (err) {
+          var canRetry =
+            err &&
+            (err.status === 404 || err.status === 0) &&
+            primaryUrl.indexOf(DIRECT_RAILWAY_URL) === -1;
+          if (!canRetry) {
+            if (progress) progress.remove();
+            throw new Error(err.message || "Upload failed.");
           }
-        };
-        xhr.onload = function () {
+          console.log(
+            "[myskool] Proxy returned " + err.status + ", retrying via direct Railway URL"
+          );
           if (progress) {
-            progress.setPercent(95);
-            progress.setText("Processing\u2026");
+            progress.setText("Retrying upload\u2026");
+            progress.setPercent(5);
           }
-          var text = xhr.responseText;
-          var data = null;
-          if (text) {
-            try {
-              data = JSON.parse(text);
-            } catch (e) {
-              var preview = text.replace(/\s+/g, " ").slice(0, 160);
-              if (progress) progress.remove();
-              return reject(
-                new Error(
-                  "Server returned non-JSON (HTTP " +
-                    xhr.status +
-                    "): " +
-                    preview +
-                    (xhr.status === 404
-                      ? " — App Proxy not deployed. Run: shopify app deploy"
-                      : "")
-                )
-              );
-            }
-          }
-          if (xhr.status < 200 || xhr.status >= 300) {
-            if (progress) progress.remove();
-            var errMsg = (data && data.error) || "Upload failed (HTTP " + xhr.status + ")";
-            if (data && data.hint) errMsg = errMsg + " — " + data.hint;
-            return reject(new Error(errMsg));
-          }
-          if (!data || !data.cdnUrl) {
-            if (progress) progress.remove();
-            return reject(
-              new Error(
-                (data && data.error) || "Upload did not return an image URL."
-              )
-            );
-          }
+          var fallbackUrl = self._directUploadUrl();
+          return self._xhrUpload(fallbackUrl, compressed, progress, true);
+        })
+        .then(function (cdnUrl) {
           if (progress) {
             progress.setPercent(100);
             progress.setText("Done!");
@@ -799,26 +846,13 @@ const MySkoolWidget = {
               progress.remove();
             }, 600);
           }
-          self.state.uploadedCdnUrl = data.cdnUrl;
-          resolve(data.cdnUrl);
-        };
-        xhr.onerror = function () {
+          return cdnUrl;
+        })
+        .catch(function (err) {
           if (progress) progress.remove();
-          reject(
-            new Error(
-              isCrossOrigin
-                ? "Upload server unreachable (CORS). Use the App Proxy path instead."
-                : "Upload failed — check your connection or App Proxy deployment."
-            )
-          );
-        };
-        xhr.ontimeout = function () {
-          if (progress) progress.remove();
-          reject(new Error("Upload timed out. Try a smaller photo."));
-        };
-        xhr.timeout = 60000;
-        xhr.send(fd);
-      });
+          var msg = err && err.message ? err.message : "Upload failed.";
+          throw new Error(msg);
+        });
     });
   },
 
