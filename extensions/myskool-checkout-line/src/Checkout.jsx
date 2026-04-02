@@ -1,6 +1,9 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { useCartLineTarget } from "@shopify/ui-extensions/checkout/preact";
+import {
+  useCartLineTarget,
+  useTranslate,
+} from "@shopify/ui-extensions/checkout/preact";
 
 function normalizeFromAttributes(attrs) {
   var m = {};
@@ -25,6 +28,7 @@ export default async () => {
 
 function Extension() {
   const line = useCartLineTarget();
+  const translate = useTranslate();
   const n = normalizeFromAttributes(line.attributes || []);
 
   var hasAny =
@@ -46,7 +50,7 @@ function Extension() {
     rows.push(
       <s-stack key="photo" gap="extraTight">
         <s-text type="small" color="subdued">
-          Photo
+          {translate("photo")}
         </s-text>
         <s-image
           src={String(n.photo)}
@@ -72,12 +76,12 @@ function Extension() {
     );
   }
 
-  textRow("name", "Name", n.name);
-  textRow("school", "School", n.school);
-  textRow("std", "Standard", n.std);
-  textRow("roll", "Roll number", n.roll);
-  textRow("theme", "Theme", n.theme);
-  textRow("pid", "Product ID", n.productId);
+  textRow("name", translate("name"), n.name);
+  textRow("school", translate("school"), n.school);
+  textRow("std", translate("standard"), n.std);
+  textRow("roll", translate("rollNumber"), n.roll);
+  textRow("theme", translate("theme"), n.theme);
+  textRow("pid", translate("productId"), n.productId);
 
   if (rows.length === 0) {
     return null;
@@ -87,7 +91,7 @@ function Extension() {
     <s-box padding="small" border="base" borderRadius="base" background="subdued">
       <s-stack gap="small">
         <s-text type="small" emphasis="bold">
-          Personalisation
+          {translate("personalisationTitle")}
         </s-text>
         <s-stack gap="small">
           {rows}

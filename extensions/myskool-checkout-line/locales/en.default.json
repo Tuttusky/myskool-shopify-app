@@ -1,1 +1,10 @@
-{}
+{
+  "personalisationTitle": "Personalisation",
+  "photo": "Photo",
+  "name": "Name",
+  "school": "School",
+  "standard": "Standard",
+  "rollNumber": "Roll number",
+  "theme": "Theme",
+  "productId": "Product ID"
+}

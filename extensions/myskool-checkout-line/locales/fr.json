@@ -1,6 +1,10 @@
 {
-  "welcome": "Bienvenue dans l'extension {{target}}!",
-  "iWouldLikeAFreeGiftWithMyOrder": "Je souhaite recevoir un cadeau gratuit avec ma commande",
-  "addAFreeGiftToMyOrder": "Ajouter un cadeau gratuit à ma commande",
-  "metafieldChangesAreNotSupported": "Les modifications de métachamps de panier ne sont pas prises en charge dans cette commande"
+  "personalisationTitle": "Personnalisation",
+  "photo": "Photo",
+  "name": "Nom",
+  "school": "École",
+  "standard": "Classe",
+  "rollNumber": "Numéro de liste",
+  "theme": "Thème",
+  "productId": "ID produit"
 }
