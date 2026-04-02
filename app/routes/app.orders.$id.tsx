@@ -12,6 +12,10 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import {
+  isPersonalisedAttrs,
+  normalisedLineProps,
+} from "../lib/personalisedLineItem";
 
 type OrderLine = {
   name: string;
@@ -82,9 +86,7 @@ export default function AppOrderDetail() {
   const { order } = useLoaderData<typeof loader>();
   const lineItems = order.lineItems?.nodes;
   const personalised = (lineItems || []).filter((line) =>
-    (line.customAttributes || []).some(
-      (a) => a.key === "_child_name" && a.value && String(a.value).trim(),
-    ),
+    isPersonalisedAttrs(attrsToRecord(line.customAttributes || [])),
   );
 
   return (
@@ -123,7 +125,9 @@ export default function AppOrderDetail() {
                 </Text>
               ) : (
                 personalised.map((line, i) => {
-                  const m = attrsToRecord(line.customAttributes || []);
+                  const m = normalisedLineProps(
+                    attrsToRecord(line.customAttributes || []),
+                  );
                   return (
                     <Box
                       key={i}
@@ -136,25 +140,25 @@ export default function AppOrderDetail() {
                           {line.name} × {line.quantity}
                         </Text>
                         <InlineStack gap="400" blockAlign="center">
-                          {m._photo_url ? (
+                          {m.photoUrl ? (
                             <Thumbnail
-                              source={m._photo_url}
+                              source={m.photoUrl}
                               alt=""
                               size="small"
                             />
                           ) : null}
                           <BlockStack gap="100">
                             <Text as="p" variant="bodyMd">
-                              Child: {m._child_name}
+                              Child: {m.childName}
                             </Text>
                             <Text as="p" variant="bodyMd">
-                              School: {m._school || "—"}
+                              School: {m.school || "—"}
                             </Text>
                             <Text as="p" variant="bodyMd">
-                              Std: {m._std || "—"} · Roll: {m._roll_no || "—"}
+                              Std: {m.std || "—"} · Roll: {m.rollNo || "—"}
                             </Text>
                             <Text as="p" variant="bodyMd">
-                              Theme: {m._theme || "—"}
+                              Theme: {m.theme || "—"}
                             </Text>
                           </BlockStack>
                         </InlineStack>

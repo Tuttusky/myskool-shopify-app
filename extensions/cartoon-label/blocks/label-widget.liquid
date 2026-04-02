@@ -15,6 +15,8 @@
   data-button-label="{{ block.settings.button_label }}"
   data-product-id="{{ product.id }}"
   data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+  {% if block.settings.product_form_id != blank %}data-product-form-id="{{ block.settings.product_form_id }}"{% endif %}
+  data-cart-sections="{{ block.settings.cart_section_ids }}"
 ></div>
 
 {% schema %}
@@ -34,6 +36,19 @@
       "id": "button_label",
       "label": "Floating button label",
       "default": "Personalise This"
+    },
+    {
+      "type": "text",
+      "id": "product_form_id",
+      "label": "Product form HTML id",
+      "info": "Optional. Set to your theme product form element id (e.g. product-form-template--123456789__main) so the added line matches the selected variant."
+    },
+    {
+      "type": "text",
+      "id": "cart_section_ids",
+      "label": "Cart AJAX section IDs",
+      "default": "cart-drawer,cart-icon-bubble",
+      "info": "Comma-separated section IDs for cart/add.js (Dawn: cart-drawer,cart-icon-bubble). Clear to skip if your theme does not use Section Rendering API for the cart."
     }
   ]
 }

@@ -10,6 +10,10 @@ import {
 } from "@shopify/polaris";
 import { TitleBar } from "@shopify/app-bridge-react";
 import { authenticate } from "../shopify.server";
+import {
+  isPersonalisedAttrs,
+  normalisedLineProps,
+} from "../lib/personalisedLineItem";
 
 type LineItemNode = {
   customAttributes?: Array<{ key?: string | null; value?: string | null }>;
@@ -37,7 +41,7 @@ function attrMap(
 function firstPersonalisedLine(order: OrderNode) {
   for (const line of order.lineItems.nodes) {
     const m = attrMap(line.customAttributes || []);
-    if (m._child_name && m._child_name.trim()) return line;
+    if (isPersonalisedAttrs(m)) return line;
   }
   return null;
 }
@@ -76,15 +80,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const filtered = nodes.filter((o) => firstPersonalisedLine(o) !== null);
   const rows = filtered.map((order) => {
     const line = firstPersonalisedLine(order)!;
-    const m = attrMap(line.customAttributes || []);
+    const m = normalisedLineProps(attrMap(line.customAttributes || []));
     return {
       id: order.id,
       orderName: order.name,
       createdAt: order.createdAt,
       customer: order.customer?.displayName ?? "—",
-      childName: m._child_name ?? "",
-      theme: m._theme ?? "—",
-      photoUrl: m._photo_url ?? "",
+      childName: m.childName,
+      theme: m.theme || "—",
+      photoUrl: m.photoUrl,
       status: order.displayFulfillmentStatus,
     };
   });

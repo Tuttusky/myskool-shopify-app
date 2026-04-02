@@ -21,6 +21,7 @@ const MySkoolWidget = {
     shopOrigin: "",
     variantId: null,
     productId: null,
+    cartSections: "",
   },
 
   themes: [
@@ -67,6 +68,8 @@ const MySkoolWidget = {
     this.state.productId = root.getAttribute("data-product-id");
     var vid = root.getAttribute("data-variant-id");
     this.state.variantId = vid ? parseInt(vid, 10) : null;
+    this.state.cartSections =
+      (root.getAttribute("data-cart-sections") || "").trim();
 
     var btn = document.createElement("button");
     btn.type = "button";
@@ -856,22 +859,64 @@ const MySkoolWidget = {
     });
   },
 
+  /**
+   * Match the variant the shopper selected (URL ?variant=, product form) when possible.
+   */
+  resolveCurrentVariantId() {
+    var self = this;
+    try {
+      var u = new URL(window.location.href);
+      var v = u.searchParams.get("variant");
+      if (v) {
+        var fromUrl = parseInt(v, 10);
+        if (!isNaN(fromUrl)) return fromUrl;
+      }
+    } catch (e) {}
+    var root = self._els.root;
+    var formId = root && root.getAttribute("data-product-form-id");
+    var form = formId ? document.getElementById(formId) : null;
+    if (!form) {
+      form =
+        document.querySelector('form[action*="/cart/add"]') ||
+        document.querySelector("form.shopify-product-form") ||
+        document.querySelector("form.product-form") ||
+        document.querySelector('form[action*="/products/"]');
+    }
+    if (form) {
+      var idInput = form.querySelector('[name="id"]');
+      if (idInput != null && idInput.value !== undefined && idInput.value !== "") {
+        var fromForm = parseInt(String(idInput.value), 10);
+        if (!isNaN(fromForm)) return fromForm;
+      }
+    }
+    return self.state.variantId;
+  },
+
   async addToCart(photoUrl) {
-    if (!this.state.variantId) {
+    var variantId = this.resolveCurrentVariantId();
+    if (!variantId) {
       throw new Error("Missing product variant.");
     }
-    var body = {
-      id: this.state.variantId,
-      quantity: 1,
-      properties: {
-        _photo_url: photoUrl || "",
-        _child_name: this.state.name,
-        _school: this.state.school,
-        _std: this.state.std,
-        _roll_no: this.state.rollNo,
-        _theme: this.state.theme,
-      },
+    var props = {
+      Photo: photoUrl || "",
+      Name: this.state.name || "",
+      School: this.state.school || "",
+      Standard: this.state.std || "",
+      "Roll number": this.state.rollNo || "",
+      Theme: this.state.theme || "",
     };
+    if (this.state.productId) {
+      props["Product ID"] = String(this.state.productId);
+    }
+    var body = {
+      id: variantId,
+      quantity: 1,
+      properties: props,
+    };
+    if (this.state.cartSections) {
+      body.sections = this.state.cartSections;
+      body.sections_url = window.location.pathname;
+    }
     var res = await fetch("/cart/add.js", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -887,6 +932,16 @@ const MySkoolWidget = {
       var msg =
         (data && (data.description || data.message)) || "Could not add to cart.";
       throw new Error(msg);
+    }
+    if (data && data.sections && typeof data.sections === "object") {
+      Object.keys(data.sections).forEach(function (key) {
+        var html = data.sections[key];
+        if (!html || typeof html !== "string") return;
+        var el = document.getElementById("shopify-section-" + key);
+        if (el) {
+          el.outerHTML = html;
+        }
+      });
     }
     this.showToast("Added to cart!", "success");
     this._refreshCartCount();
