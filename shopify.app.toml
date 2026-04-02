@@ -21,8 +21,9 @@ api_version = "2026-07"
   uri = "/webhooks/app/scopes_update"
 
 [access_scopes]
+# write_products: app._index (productCreate, variants); read_orders: app.orders*; write_files: api.upload-photo (Files API)
 # Learn more at https://shopify.dev/docs/apps/tools/cli/configuration#access_scopes
-scopes = ""
+scopes = "write_products,read_orders,write_files"
 
 [auth]
 redirect_urls = [ "https://myskool-shopify-app-production.up.railway.app/auth/callback" ]
