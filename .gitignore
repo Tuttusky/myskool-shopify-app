@@ -14,7 +14,7 @@ database.sqlite
 .env
 .env.*
 
-package-lock.json
+# Keep package-lock.json committed so Docker/Railway `npm ci` works.
 yarn.lock
 pnpm-lock.yaml
 
