@@ -1,4 +1,4 @@
-import type { ActionFunctionArgs } from "@remix-run/node";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import {
   unstable_createMemoryUploadHandler,
   unstable_parseMultipartFormData,
@@ -8,7 +8,7 @@ import { authenticate } from "../shopify.server";
 function corsHeaders() {
   return {
     "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   };
 }
@@ -32,6 +32,23 @@ async function getAdminClient(request: Request) {
   const { admin } = await authenticate.admin(request);
   return admin;
 }
+
+/**
+ * Remix requires a `loader` for GET/HEAD to this route. Uploads use `action` (POST) only.
+ */
+export const loader = async ({ request }: LoaderFunctionArgs) => {
+  if (request.method === "HEAD") {
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
+  return jsonWithCors(
+    {
+      ok: true,
+      message:
+        "Photo upload API. Use POST with multipart/form-data (field name: file).",
+    },
+    { status: 200 },
+  );
+};
 
 export const action = async ({ request }: ActionFunctionArgs) => {
   if (request.method === "OPTIONS") {
