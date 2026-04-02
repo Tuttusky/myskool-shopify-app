@@ -27,19 +27,32 @@ function jsonWithCors(data: unknown, init?: ResponseInit) {
 }
 
 async function getAdminClient(request: Request) {
+  const url = new URL(request.url);
   try {
     const proxy = await authenticate.public.appProxy(request);
     if (proxy.admin) {
+      console.log("[api.upload-photo] App Proxy auth OK, admin available");
       return proxy.admin;
     }
-  } catch {
-    // Not an app proxy request (e.g. direct hit to Railway)
+    console.warn(
+      "[api.upload-photo] App Proxy auth OK but admin is null — shop may not have installed the app or offline token expired. Shop:",
+      url.searchParams.get("shop") || "(unknown)",
+    );
+  } catch (proxyErr) {
+    console.log(
+      "[api.upload-photo] Not an App Proxy request or signature invalid:",
+      proxyErr instanceof Error ? proxyErr.message : proxyErr,
+    );
   }
   try {
     const { admin } = await authenticate.admin(request);
+    console.log("[api.upload-photo] Admin session auth OK");
     return admin;
-  } catch {
-    // Redirect to login / invalid session — no CORS on thrown Response → browser shows "Failed to fetch"
+  } catch (adminErr) {
+    console.warn(
+      "[api.upload-photo] Admin auth failed (expected for storefront requests):",
+      adminErr instanceof Error ? adminErr.message : adminErr,
+    );
     return null;
   }
 }
@@ -90,9 +103,9 @@ async function handleUploadPost(request: Request) {
   if (!admin) {
     return jsonWithCors(
       {
-        error: "Unauthorized",
+        error: "Unauthorized — no Shopify session found",
         hint:
-          "Use the App Proxy URL from the storefront (…/apps/myskool/api/upload-photo), not a direct Railway URL.",
+          "Open the app once in Shopify Admin to create an offline session, then retry the upload from the storefront via the App Proxy URL (/apps/myskool/api/upload-photo).",
       },
       { status: 401 },
     );

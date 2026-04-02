@@ -470,12 +470,6 @@ const MySkoolWidget = {
         err.appendChild(document.createTextNode("Please enter a name."));
         return;
       }
-      if (self.state.photoFile && !self.state.apiUrl) {
-        err.appendChild(
-          document.createTextNode("Configure Photo upload API URL to upload a photo."),
-        );
-        return;
-      }
       addBtn.disabled = true;
       var labelNode = document.createTextNode("ADD TO CART");
       var spin = document.createElement("span");
@@ -485,10 +479,9 @@ const MySkoolWidget = {
       try {
         var cdn =
           self.state.uploadedCdnUrl ||
-          (self.state.photoFile ? await self.uploadPhoto(self.state.photoFile) : "");
-        if (self.state.photoFile && !cdn) {
-          throw new Error("Upload failed");
-        }
+          (self.state.photoFile
+            ? await self.uploadPhoto(self.state.photoFile, wrap)
+            : "");
         await self.addToCart(cdn || "");
         self.closeModal();
       } catch (e) {
@@ -603,12 +596,6 @@ const MySkoolWidget = {
         err.appendChild(document.createTextNode("Please enter a name."));
         return;
       }
-      if (self.state.photoFile && !self.state.apiUrl) {
-        err.appendChild(
-          document.createTextNode("Configure Photo upload API URL to upload a photo."),
-        );
-        return;
-      }
       confirm.disabled = true;
       var labelNode = document.createTextNode("Confirm & Add to Cart");
       var spin = document.createElement("span");
@@ -618,10 +605,9 @@ const MySkoolWidget = {
       try {
         var cdn =
           self.state.uploadedCdnUrl ||
-          (self.state.photoFile ? await self.uploadPhoto(self.state.photoFile) : "");
-        if (self.state.photoFile && !cdn) {
-          throw new Error("Upload failed");
-        }
+          (self.state.photoFile
+            ? await self.uploadPhoto(self.state.photoFile, wrap)
+            : "");
         await self.addToCart(cdn || "");
         self.closeModal();
       } catch (e) {
@@ -648,61 +634,192 @@ const MySkoolWidget = {
     wrap.appendChild(edit);
   },
 
-  async uploadPhoto(file) {
+  compressImage(file, maxDim, quality) {
+    maxDim = maxDim || 1200;
+    quality = quality || 0.82;
+    var self = this;
+    return new Promise(function (resolve, reject) {
+      if (!file || !file.type || file.type.indexOf("image/") !== 0) {
+        return resolve(file);
+      }
+      var img = new Image();
+      var url = URL.createObjectURL(file);
+      img.onload = function () {
+        URL.revokeObjectURL(url);
+        var w = img.naturalWidth;
+        var h = img.naturalHeight;
+        if (w <= maxDim && h <= maxDim && file.size < 500000) {
+          return resolve(file);
+        }
+        if (w > maxDim || h > maxDim) {
+          var ratio = Math.min(maxDim / w, maxDim / h);
+          w = Math.round(w * ratio);
+          h = Math.round(h * ratio);
+        }
+        var canvas = document.createElement("canvas");
+        canvas.width = w;
+        canvas.height = h;
+        var ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, w, h);
+        canvas.toBlob(
+          function (blob) {
+            if (!blob) return resolve(file);
+            var compressed = new File([blob], file.name || "photo.jpg", {
+              type: "image/jpeg",
+              lastModified: Date.now(),
+            });
+            console.log(
+              "[myskool] compressed",
+              (file.size / 1024).toFixed(0) + "KB →",
+              (compressed.size / 1024).toFixed(0) + "KB"
+            );
+            resolve(compressed);
+          },
+          "image/jpeg",
+          quality,
+        );
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        resolve(file);
+      };
+      img.src = url;
+    });
+  },
+
+  _showProgress(parentEl) {
+    var wrap = document.createElement("div");
+    wrap.className = "msk-progress-wrap";
+    var label = document.createElement("div");
+    label.className = "msk-progress-label";
+    label.appendChild(document.createTextNode("Compressing photo\u2026"));
+    var track = document.createElement("div");
+    track.className = "msk-progress-track";
+    var bar = document.createElement("div");
+    bar.className = "msk-progress-bar";
+    bar.style.width = "0%";
+    track.appendChild(bar);
+    wrap.appendChild(label);
+    wrap.appendChild(track);
+    parentEl.appendChild(wrap);
+    return {
+      el: wrap,
+      bar: bar,
+      label: label,
+      setPercent: function (pct) {
+        bar.style.width = Math.min(100, Math.max(0, pct)).toFixed(0) + "%";
+      },
+      setText: function (txt) {
+        label.textContent = txt;
+      },
+      remove: function () {
+        if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      },
+    };
+  },
+
+  uploadPhoto(file, progressParent) {
+    var self = this;
     if (!this.state.apiUrl) {
       this.showToast("Configure Photo upload API URL in theme editor", "error");
-      throw new Error("Photo upload URL is not configured.");
+      return Promise.reject(new Error("Photo upload URL is not configured."));
     }
-    var fd = new FormData();
-    fd.append("file", file);
-    var isCrossOrigin =
-      this.state.apiUrl.indexOf("http://") === 0 ||
-      this.state.apiUrl.indexOf("https://") === 0;
-    var res;
-    try {
-      res = await fetch(this.state.apiUrl, {
-        method: "POST",
-        body: fd,
-        credentials: isCrossOrigin ? "omit" : "same-origin",
-        mode: isCrossOrigin ? "cors" : "same-origin",
+    var progress = progressParent ? this._showProgress(progressParent) : null;
+
+    return this.compressImage(file, 1200, 0.82).then(function (compressed) {
+      if (progress) {
+        progress.setText("Uploading photo\u2026");
+        progress.setPercent(5);
+      }
+      return new Promise(function (resolve, reject) {
+        var fd = new FormData();
+        fd.append("file", compressed);
+        var isCrossOrigin =
+          self.state.apiUrl.indexOf("http://") === 0 ||
+          self.state.apiUrl.indexOf("https://") === 0;
+
+        var xhr = new XMLHttpRequest();
+        xhr.open("POST", self.state.apiUrl, true);
+        if (!isCrossOrigin) {
+          xhr.withCredentials = true;
+        }
+        xhr.upload.onprogress = function (e) {
+          if (e.lengthComputable && progress) {
+            var pct = 5 + (e.loaded / e.total) * 85;
+            progress.setPercent(pct);
+            progress.setText(
+              "Uploading\u2026 " + Math.round(pct) + "%"
+            );
+          }
+        };
+        xhr.onload = function () {
+          if (progress) {
+            progress.setPercent(95);
+            progress.setText("Processing\u2026");
+          }
+          var text = xhr.responseText;
+          var data = null;
+          if (text) {
+            try {
+              data = JSON.parse(text);
+            } catch (e) {
+              var preview = text.replace(/\s+/g, " ").slice(0, 160);
+              if (progress) progress.remove();
+              return reject(
+                new Error(
+                  "Server returned non-JSON (HTTP " +
+                    xhr.status +
+                    "): " +
+                    preview +
+                    (xhr.status === 404
+                      ? " — App Proxy not deployed. Run: shopify app deploy"
+                      : "")
+                )
+              );
+            }
+          }
+          if (xhr.status < 200 || xhr.status >= 300) {
+            if (progress) progress.remove();
+            var errMsg = (data && data.error) || "Upload failed (HTTP " + xhr.status + ")";
+            if (data && data.hint) errMsg = errMsg + " — " + data.hint;
+            return reject(new Error(errMsg));
+          }
+          if (!data || !data.cdnUrl) {
+            if (progress) progress.remove();
+            return reject(
+              new Error(
+                (data && data.error) || "Upload did not return an image URL."
+              )
+            );
+          }
+          if (progress) {
+            progress.setPercent(100);
+            progress.setText("Done!");
+            setTimeout(function () {
+              progress.remove();
+            }, 600);
+          }
+          self.state.uploadedCdnUrl = data.cdnUrl;
+          resolve(data.cdnUrl);
+        };
+        xhr.onerror = function () {
+          if (progress) progress.remove();
+          reject(
+            new Error(
+              isCrossOrigin
+                ? "Upload server unreachable (CORS). Use the App Proxy path instead."
+                : "Upload failed — check your connection or App Proxy deployment."
+            )
+          );
+        };
+        xhr.ontimeout = function () {
+          if (progress) progress.remove();
+          reject(new Error("Upload timed out. Try a smaller photo."));
+        };
+        xhr.timeout = 60000;
+        xhr.send(fd);
       });
-    } catch (networkErr) {
-      throw new Error(
-        isCrossOrigin
-          ? "Upload server unreachable (CORS blocked). Switch to the App Proxy path /apps/myskool/api/upload-photo and run shopify app deploy."
-          : "Upload failed — is the App Proxy deployed? Run: shopify app deploy",
-      );
-    }
-    var text = await res.text();
-    var data = null;
-    if (text) {
-      try {
-        data = JSON.parse(text);
-      } catch (parseErr) {
-        var preview = text.replace(/\s+/g, " ").slice(0, 160);
-        throw new Error(
-          "Upload server returned non-JSON (HTTP " +
-            res.status +
-            "). " +
-            (preview || "(empty body)") +
-            (res.status === 404
-              ? " — wrong URL or App Proxy not deployed."
-              : ""),
-        );
-      }
-    }
-    if (!res.ok) {
-      var errMsg = (data && data.error) || "Upload failed.";
-      if (data && data.hint) {
-        errMsg = errMsg + " " + data.hint;
-      }
-      throw new Error(errMsg);
-    }
-    if (!data.cdnUrl) {
-      throw new Error("Upload did not return a URL.");
-    }
-    this.state.uploadedCdnUrl = data.cdnUrl;
-    return data.cdnUrl;
+    });
   },
 
   async addToCart(photoUrl) {
