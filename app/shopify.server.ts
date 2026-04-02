@@ -7,17 +7,44 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
-/** Public HTTPS URL of this app (must match Shopify Partner Dashboard). */
+/**
+ * Public HTTPS URL of this app (must match Shopify Partner Dashboard).
+ * Railway’s RAILWAY_PUBLIC_DOMAIN is sometimes unset; set SHOPIFY_APP_URL explicitly in production.
+ */
 function resolveAppUrl(): string {
-  const explicit = process.env.SHOPIFY_APP_URL?.trim();
-  if (explicit) return explicit;
-  // Railway sets this when the service has a public domain (e.g. *.up.railway.app)
-  const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
-  if (railwayDomain) {
-    const host = railwayDomain.replace(/^https?:\/\//, "");
+  const tryHttps = (raw: string | undefined): string | undefined => {
+    const v = raw?.trim();
+    if (!v) return undefined;
+    if (v.startsWith("http://") || v.startsWith("https://")) return v;
+    // bare hostname (e.g. *.up.railway.app)
+    const host = v.replace(/^https?:\/\//, "").split("/")[0];
+    if (!host || host === "localhost" || host === "0.0.0.0" || host.startsWith("127."))
+      return undefined;
     return `https://${host}`;
+  };
+
+  const rawList = [
+    process.env.SHOPIFY_APP_URL,
+    process.env.PUBLIC_URL,
+    process.env.APP_URL,
+    process.env.HOST,
+    process.env.RAILWAY_PUBLIC_DOMAIN,
+  ];
+
+  for (const raw of rawList) {
+    const url = tryHttps(raw);
+    if (url) return url;
   }
   return "";
+}
+
+const appUrl = resolveAppUrl();
+if (!appUrl) {
+  throw new Error(
+    "Missing public app URL. In Railway: open your service → Settings → Networking → generate a public domain, " +
+      "then Variables → add SHOPIFY_APP_URL = https://<that-domain> (same URL in Shopify Partner Dashboard → App URL). " +
+      "RAILWAY_PUBLIC_DOMAIN is not always injected; SHOPIFY_APP_URL is required if it stays empty.",
+  );
 }
 
 const shopify = shopifyApp({
@@ -25,7 +52,7 @@ const shopify = shopifyApp({
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.January25,
   scopes: process.env.SCOPES?.split(","),
-  appUrl: resolveAppUrl(),
+  appUrl,
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
