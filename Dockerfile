@@ -7,7 +7,8 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-COPY package.json package-lock.json* ./
+# Both files must exist in the build context (commit package-lock.json; Railway root = repo root).
+COPY package.json package-lock.json ./
 
 RUN npm ci --omit=dev && npm cache clean --force
 # Remove CLI packages since we don't need them in production by default.
