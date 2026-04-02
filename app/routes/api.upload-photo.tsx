@@ -17,9 +17,13 @@ function corsHeaders(): Record<string, string> {
 
 function jsonWithCors(data: unknown, init?: ResponseInit) {
   const headers = new Headers(init?.headers);
+  headers.set("Content-Type", "application/json");
   const c = corsHeaders();
   Object.entries(c).forEach(([k, v]) => headers.set(k, String(v)));
-  return Response.json(data, { ...init, headers });
+  return new Response(JSON.stringify(data), {
+    status: init?.status ?? 200,
+    headers,
+  });
 }
 
 async function getAdminClient(request: Request) {
