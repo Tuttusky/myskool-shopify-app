@@ -1,0 +1,9 @@
+api_version = "2024-10"
+
+[[extensions]]
+
+uid = "f343355a-8420-a11d-4e10-7240d80d063dcb4b3fa9"
+
+type = "theme_app_extension"
+name = "cartoon-label"
+handle = "cartoon-label"

@@ -1,0 +1,32 @@
+{{ 'widget.css' | asset_url | stylesheet_tag }}
+<script src="{{ 'widget.js' | asset_url }}" defer></script>
+
+<div
+  id="myskool-widget-root"
+  class="myskool-widget-root"
+  data-api-url="{{ block.settings.photo_upload_api_url }}"
+  data-button-label="{{ block.settings.button_label }}"
+  data-product-id="{{ product.id }}"
+  data-variant-id="{{ product.selected_or_first_available_variant.id }}"
+></div>
+
+{% schema %}
+{
+  "name": "Label widget",
+  "target": "section",
+  "templates": ["product"],
+  "settings": [
+    {
+      "type": "url",
+      "id": "photo_upload_api_url",
+      "label": "Photo upload API URL"
+    },
+    {
+      "type": "text",
+      "id": "button_label",
+      "label": "Floating button label",
+      "default": "Personalise This"
+    }
+  ]
+}
+{% endschema %}
