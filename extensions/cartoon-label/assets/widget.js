@@ -908,10 +908,15 @@ const MySkoolWidget = {
     if (this.state.productId) {
       props["Product ID"] = String(this.state.productId);
     }
+    // Shopify Cart Ajax API expects `items` for JSON POST; root-level id/properties are unreliable.
     var body = {
-      id: variantId,
-      quantity: 1,
-      properties: props,
+      items: [
+        {
+          id: variantId,
+          quantity: 1,
+          properties: props,
+        },
+      ],
     };
     if (this.state.cartSections) {
       body.sections = this.state.cartSections;
