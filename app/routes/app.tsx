@@ -26,6 +26,7 @@ export default function App() {
         </Link>
         <Link to="/app/additional">Additional page</Link>
         <Link to="/app/orders">Personalised orders</Link>
+        <Link to="/app/name-slip">Name slip template</Link>
       </NavMenu>
       <Outlet />
     </AppProvider>
