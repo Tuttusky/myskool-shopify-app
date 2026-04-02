@@ -892,14 +892,30 @@ const MySkoolWidget = {
     return self.state.variantId;
   },
 
-  async addToCart(photoUrl) {
-    var variantId = this.resolveCurrentVariantId();
-    if (!variantId) {
-      throw new Error("Missing product variant.");
-    }
+  /**
+   * Read current modal inputs into state so cart gets the latest text (not a stale copy).
+   */
+  _syncFormFieldsFromDom() {
+    var self = this;
+    try {
+      var name = document.getElementById("msk-f-name");
+      var school = document.getElementById("msk-f-school");
+      var std = document.getElementById("msk-f-std");
+      var rollNo = document.getElementById("msk-f-rollNo");
+      if (name && name.value != null) self.state.name = name.value;
+      if (school && school.value != null) self.state.school = school.value;
+      if (std && std.value != null) self.state.std = std.value;
+      if (rollNo && rollNo.value != null) self.state.rollNo = rollNo.value;
+    } catch (e) {}
+  },
+
+  /**
+   * Line item properties: photo URL + all personalised fields (same data as the modal form).
+   */
+  _buildCartLineProperties(photoUrl) {
     var props = {
       Photo: photoUrl || "",
-      Name: this.state.name || "",
+      Name: (this.state.name || "").trim(),
       School: this.state.school || "",
       Standard: this.state.std || "",
       "Roll number": this.state.rollNo || "",
@@ -908,6 +924,34 @@ const MySkoolWidget = {
     if (this.state.productId) {
       props["Product ID"] = String(this.state.productId);
     }
+    return props;
+  },
+
+  /**
+   * POST /cart/add.js with URL-encoded body (form-style), same fields as JSON items[].
+   */
+  _cartAddBodyUrlEncoded(variantId, props) {
+    var params = new URLSearchParams();
+    params.append("items[0][id]", String(variantId));
+    params.append("items[0][quantity]", "1");
+    Object.keys(props).forEach(function (key) {
+      if (!Object.prototype.hasOwnProperty.call(props, key)) return;
+      params.append("items[0][properties][" + key + "]", String(props[key]));
+    });
+    if (this.state.cartSections) {
+      params.append("sections", this.state.cartSections);
+      params.append("sections_url", window.location.pathname);
+    }
+    return params.toString();
+  },
+
+  async addToCart(photoUrl) {
+    this._syncFormFieldsFromDom();
+    var variantId = this.resolveCurrentVariantId();
+    if (!variantId) {
+      throw new Error("Missing product variant.");
+    }
+    var props = this._buildCartLineProperties(photoUrl);
     // Shopify Cart Ajax API expects `items` for JSON POST; root-level id/properties are unreliable.
     var body = {
       items: [
@@ -925,6 +969,7 @@ const MySkoolWidget = {
     var res = await fetch("/cart/add.js", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
       body: JSON.stringify(body),
     });
     var data = null;
@@ -934,10 +979,36 @@ const MySkoolWidget = {
       throw new Error("Could not read cart response.");
     }
     if (!res.ok) {
+      var tryForm =
+        res.status === 400 || res.status === 422 || res.status === 406;
+      if (tryForm) {
+        res = await fetch("/cart/add.js", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/x-www-form-urlencoded",
+            Accept: "application/json",
+          },
+          credentials: "same-origin",
+          body: this._cartAddBodyUrlEncoded(variantId, props),
+        });
+        try {
+          data = await res.json();
+        } catch (e2) {
+          throw new Error("Could not read cart response.");
+        }
+      }
+    }
+    if (!res.ok) {
       var msg =
         (data && (data.description || data.message)) || "Could not add to cart.";
       throw new Error(msg);
     }
+    try {
+      document.documentElement.dispatchEvent(
+        new CustomEvent("cart:refresh", { bubbles: true }),
+      );
+      window.dispatchEvent(new CustomEvent("cart:updated"));
+    } catch (e3) {}
     if (data && data.sections && typeof data.sections === "object") {
       Object.keys(data.sections).forEach(function (key) {
         var html = data.sections[key];
@@ -953,7 +1024,7 @@ const MySkoolWidget = {
   },
 
   _refreshCartCount() {
-    fetch("/cart.js")
+    fetch("/cart.js", { credentials: "same-origin" })
       .then(function (r) {
         return r.json();
       })
