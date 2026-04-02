@@ -1,8 +1,7 @@
 /**
  * Myskool personalised label widget — vanilla JS (storefront Theme App Extension)
- * Prefer App Proxy path /apps/myskool/api/upload-photo (same origin as the shop) to avoid CORS.
+ * Default API host must return JSON (Remix /api/upload-photo). Shop /apps/... URLs return HTML if App Proxy is not active.
  */
-var APP_PROXY_SUFFIX = "/apps/myskool/api/upload-photo";
 var DEFAULT_DIRECT_UPLOAD_API =
   "https://myskool-shopify-app-production.up.railway.app/api/upload-photo";
 
@@ -59,14 +58,8 @@ const MySkoolWidget = {
     if (!root) return;
     this._els.root = root;
     var rawUrl = root.getAttribute("data-api-url");
-    var shopOrigin = root.getAttribute("data-shop-origin");
-    var fallbackUrl = DEFAULT_DIRECT_UPLOAD_API;
-    if (shopOrigin && String(shopOrigin).trim()) {
-      fallbackUrl =
-        String(shopOrigin).replace(/\/$/, "") + APP_PROXY_SUFFIX;
-    }
     this.state.apiUrl =
-      (rawUrl && String(rawUrl).trim()) || fallbackUrl;
+      (rawUrl && String(rawUrl).trim()) || DEFAULT_DIRECT_UPLOAD_API;
     var btnLabel = root.getAttribute("data-button-label") || "Personalise This";
     this.state.productId = root.getAttribute("data-product-id");
     var vid = root.getAttribute("data-variant-id");
