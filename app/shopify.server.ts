@@ -47,11 +47,29 @@ if (!appUrl) {
   );
 }
 
+// Partner Dashboard: Client ID → SHOPIFY_API_KEY, Client secret → SHOPIFY_API_SECRET (same names Shopify CLI uses).
+const apiKey =
+  process.env.SHOPIFY_API_KEY?.trim() || process.env.SHOPIFY_CLIENT_ID?.trim();
+const apiSecretKey =
+  process.env.SHOPIFY_API_SECRET?.trim() ||
+  process.env.SHOPIFY_CLIENT_SECRET?.trim() ||
+  "";
+
+if (!apiKey || !apiSecretKey) {
+  throw new Error(
+    "Missing SHOPIFY_API_KEY and/or SHOPIFY_API_SECRET. In Railway, add them on this service (Variables) — " +
+      "exact names: SHOPIFY_API_KEY (Client ID) and SHOPIFY_API_SECRET (Client secret from Shopify Partners). " +
+      "Redeploy after saving. If you use another name, set SHOPIFY_CLIENT_ID / SHOPIFY_CLIENT_SECRET as aliases.",
+  );
+}
+
 const shopify = shopifyApp({
-  apiKey: process.env.SHOPIFY_API_KEY,
-  apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
+  apiKey,
+  apiSecretKey,
   apiVersion: ApiVersion.January25,
-  scopes: process.env.SCOPES?.split(","),
+  scopes: process.env.SCOPES
+    ? process.env.SCOPES.split(",").map((s) => s.trim()).filter(Boolean)
+    : undefined,
   appUrl,
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
