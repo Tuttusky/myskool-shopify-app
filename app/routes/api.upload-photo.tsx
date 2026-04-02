@@ -3,7 +3,8 @@ import {
   unstable_createMemoryUploadHandler,
   unstable_parseMultipartFormData,
 } from "@remix-run/node";
-import { authenticate, unauthenticated } from "../shopify.server";
+import { authenticate } from "../shopify.server";
+import { apiVersion } from "../shopify.server";
 
 function corsHeaders(): Record<string, string> {
   return {
@@ -26,73 +27,83 @@ function jsonWithCors(data: unknown, init?: ResponseInit) {
   });
 }
 
+/**
+ * Lightweight GraphQL client that uses a raw Admin API access token.
+ * No sessions or database needed — just the token + shop domain.
+ */
+function createTokenAdmin(shop: string, token: string) {
+  const endpoint = `https://${shop}/admin/api/${apiVersion}/graphql.json`;
+  return {
+    graphql: async (query: string, options?: { variables?: Record<string, unknown> }) => {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Shopify-Access-Token": token,
+        },
+        body: JSON.stringify({ query, variables: options?.variables }),
+      });
+      return {
+        json: () => res.json(),
+      };
+    },
+  };
+}
+
+type AdminClient = {
+  graphql: (
+    query: string,
+    options?: { variables?: Record<string, unknown> },
+  ) => Promise<{ json: () => Promise<unknown> }>;
+};
+
 function extractShopDomain(request: Request): string | null {
   const url = new URL(request.url);
   const fromParam = url.searchParams.get("shop");
   if (fromParam) return fromParam;
-  const referer = request.headers.get("referer") || request.headers.get("origin") || "";
+  const referer =
+    request.headers.get("referer") || request.headers.get("origin") || "";
   const match = referer.match(/([a-z0-9-]+\.myshopify\.com)/i);
   return match ? match[1] : null;
 }
 
-async function getAdminClient(request: Request) {
-  const url = new URL(request.url);
-
-  // 1. App Proxy auth (storefront → Shopify → Railway, includes HMAC signature)
+async function getAdminClient(request: Request): Promise<AdminClient | null> {
+  // 1. App Proxy auth
   try {
     const proxy = await authenticate.public.appProxy(request);
     if (proxy.admin) {
-      console.log("[api.upload-photo] App Proxy auth OK, admin available");
-      return proxy.admin;
+      console.log("[upload] Auth via App Proxy OK");
+      return proxy.admin as unknown as AdminClient;
     }
-    console.warn(
-      "[api.upload-photo] App Proxy auth OK but admin is null. Shop:",
-      url.searchParams.get("shop") || "(unknown)",
-    );
-  } catch (proxyErr) {
-    console.log(
-      "[api.upload-photo] Not an App Proxy request:",
-      proxyErr instanceof Error ? proxyErr.message : proxyErr,
-    );
+  } catch {
+    // not a proxy request
   }
 
-  // 2. Admin session (embedded admin iframe)
+  // 2. Admin session (embedded iframe)
   try {
     const { admin } = await authenticate.admin(request);
-    console.log("[api.upload-photo] Admin session auth OK");
-    return admin;
-  } catch (adminErr) {
-    console.log(
-      "[api.upload-photo] Admin auth failed:",
-      adminErr instanceof Error ? adminErr.message : adminErr,
-    );
+    console.log("[upload] Auth via admin session OK");
+    return admin as unknown as AdminClient;
+  } catch {
+    // no admin session
   }
 
-  // 3. Fallback: look up offline session by shop domain (direct Railway hit from storefront)
-  const shop = extractShopDomain(request);
-  if (shop) {
-    try {
-      const { admin } = await unauthenticated.admin(shop);
-      console.log("[api.upload-photo] Unauthenticated admin fallback OK for", shop);
-      return admin;
-    } catch (unauthedErr) {
-      console.warn(
-        "[api.upload-photo] Unauthenticated admin lookup failed for",
-        shop,
-        ":",
-        unauthedErr instanceof Error ? unauthedErr.message : unauthedErr,
-      );
-    }
-  } else {
-    console.warn("[api.upload-photo] No shop domain found in request — cannot use unauthenticated fallback");
+  // 3. Env-var token (no DB needed)
+  const token = process.env.SHOPIFY_ADMIN_API_TOKEN?.trim();
+  const envShop = process.env.SHOPIFY_STORE_DOMAIN?.trim();
+  const shop = extractShopDomain(request) || envShop;
+
+  if (token && shop) {
+    console.log("[upload] Auth via SHOPIFY_ADMIN_API_TOKEN for", shop);
+    return createTokenAdmin(shop, token);
   }
 
+  console.warn(
+    "[upload] All auth methods failed. Set SHOPIFY_ADMIN_API_TOKEN + SHOPIFY_STORE_DOMAIN on Railway.",
+  );
   return null;
 }
 
-/**
- * Remix requires a `loader` for GET/HEAD to this route. Uploads use `action` (POST) only.
- */
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   if (request.method === "HEAD") {
     return new Response(null, { status: 204, headers: corsHeaders() });
@@ -101,7 +112,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     {
       ok: true,
       message:
-        "Photo upload API. Use POST with multipart/form-data (field name: file).",
+        "Photo upload API. POST multipart/form-data with field name 'file'.",
     },
     { status: 200 },
   );
@@ -118,14 +129,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   try {
     return await handleUploadPost(request);
   } catch (error) {
-    console.error("[api.upload-photo]", error);
+    console.error("[upload]", error);
     const message =
       error instanceof Error ? error.message : "Unexpected server error";
     return jsonWithCors(
-      {
-        error: message,
-        hint: "Check Railway logs. If the response was HTML, verify App Proxy URL and deploy.",
-      },
+      { error: message, hint: "Check Railway logs." },
       { status: 500 },
     );
   }
@@ -136,9 +144,9 @@ async function handleUploadPost(request: Request) {
   if (!admin) {
     return jsonWithCors(
       {
-        error: "Unauthorized — no Shopify session found",
+        error: "Unauthorized",
         hint:
-          "Open the app once in Shopify Admin to create an offline session, then retry the upload from the storefront via the App Proxy URL (/apps/myskool/api/upload-photo).",
+          "Set SHOPIFY_ADMIN_API_TOKEN and SHOPIFY_STORE_DOMAIN as environment variables on Railway.",
       },
       { status: 401 },
     );
@@ -168,24 +176,18 @@ async function handleUploadPost(request: Request) {
   const mimeType = file.type || "application/octet-stream";
   const filename = file.name || "upload.bin";
 
+  // Stage the upload
   const stagedRes = await admin.graphql(
-    `#graphql
-      mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
-        stagedUploadsCreate(input: $input) {
-          stagedTargets {
-            url
-            resourceUrl
-            parameters {
-              name
-              value
-            }
-          }
-          userErrors {
-            field
-            message
-          }
+    `mutation stagedUploadsCreate($input: [StagedUploadInput!]!) {
+      stagedUploadsCreate(input: $input) {
+        stagedTargets {
+          url
+          resourceUrl
+          parameters { name value }
         }
-      }`,
+        userErrors { field message }
+      }
+    }`,
     {
       variables: {
         input: [
@@ -223,9 +225,7 @@ async function handleUploadPost(request: Request) {
     );
   }
 
-  const stagedTargets =
-    stagedJson.data?.stagedUploadsCreate?.stagedTargets;
-  const target = stagedTargets?.[0];
+  const target = stagedJson.data?.stagedUploadsCreate?.stagedTargets?.[0];
   if (!target?.url || !target.resourceUrl) {
     const gqlErr = stagedJson.errors?.map((e) => e.message).join("; ");
     return jsonWithCors(
@@ -234,15 +234,12 @@ async function handleUploadPost(request: Request) {
     );
   }
 
+  // PUT file bytes to the staged target
   const uploadForm = new FormData();
-  for (const parameter of target.parameters) {
-    uploadForm.append(parameter.name, parameter.value);
+  for (const p of target.parameters) {
+    uploadForm.append(p.name, p.value);
   }
-  uploadForm.append(
-    "file",
-    new Blob([buffer], { type: mimeType }),
-    filename,
-  );
+  uploadForm.append("file", new Blob([buffer], { type: mimeType }), filename);
 
   const uploadHttp = await fetch(target.url, {
     method: "POST",
@@ -252,41 +249,25 @@ async function handleUploadPost(request: Request) {
   if (!uploadHttp.ok) {
     const text = await uploadHttp.text();
     return jsonWithCors(
-      {
-        error: `Staged upload HTTP ${uploadHttp.status}`,
-        detail: text.slice(0, 500),
-      },
+      { error: `Staged upload HTTP ${uploadHttp.status}`, detail: text.slice(0, 500) },
       { status: 502 },
     );
   }
 
+  // Create the file in Shopify
   const createRes = await admin.graphql(
-    `#graphql
-      mutation fileCreate($files: [FileCreateInput!]!) {
-        fileCreate(files: $files) {
-          files {
-            __typename
-            ... on MediaImage {
-              id
-              image {
-                url
-              }
-            }
-          }
-          userErrors {
-            field
-            message
-          }
+    `mutation fileCreate($files: [FileCreateInput!]!) {
+      fileCreate(files: $files) {
+        files {
+          __typename
+          ... on MediaImage { id image { url } }
         }
-      }`,
+        userErrors { field message }
+      }
+    }`,
     {
       variables: {
-        files: [
-          {
-            originalSource: target.resourceUrl,
-            contentType: "IMAGE",
-          },
-        ],
+        files: [{ originalSource: target.resourceUrl, contentType: "IMAGE" }],
       },
     },
   );
@@ -294,10 +275,7 @@ async function handleUploadPost(request: Request) {
   const createJson = (await createRes.json()) as {
     data?: {
       fileCreate?: {
-        files?: Array<{
-          id?: string;
-          image?: { url?: string };
-        }>;
+        files?: Array<{ id?: string; image?: { url?: string } }>;
         userErrors?: Array<{ message: string }>;
       };
     };
