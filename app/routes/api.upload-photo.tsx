@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "@remix-run/node";
 import {
+  json,
   unstable_createMemoryUploadHandler,
   unstable_parseMultipartFormData,
 } from "@remix-run/node";
@@ -19,7 +20,8 @@ function jsonWithCors(data: unknown, init?: ResponseInit) {
   const headers = new Headers(init?.headers);
   const c = corsHeaders();
   Object.entries(c).forEach(([k, v]) => headers.set(k, String(v)));
-  return Response.json(data, { ...init, headers });
+  // Use Remix `json()` — `Response.json()` is not available on all Node runtimes.
+  return json(data, { ...init, headers });
 }
 
 async function getAdminClient(request: Request) {
