@@ -7,12 +7,25 @@ import {
 import { PrismaSessionStorage } from "@shopify/shopify-app-session-storage-prisma";
 import prisma from "./db.server";
 
+/** Public HTTPS URL of this app (must match Shopify Partner Dashboard). */
+function resolveAppUrl(): string {
+  const explicit = process.env.SHOPIFY_APP_URL?.trim();
+  if (explicit) return explicit;
+  // Railway sets this when the service has a public domain (e.g. *.up.railway.app)
+  const railwayDomain = process.env.RAILWAY_PUBLIC_DOMAIN?.trim();
+  if (railwayDomain) {
+    const host = railwayDomain.replace(/^https?:\/\//, "");
+    return `https://${host}`;
+  }
+  return "";
+}
+
 const shopify = shopifyApp({
   apiKey: process.env.SHOPIFY_API_KEY,
   apiSecretKey: process.env.SHOPIFY_API_SECRET || "",
   apiVersion: ApiVersion.January25,
   scopes: process.env.SCOPES?.split(","),
-  appUrl: process.env.SHOPIFY_APP_URL || "",
+  appUrl: resolveAppUrl(),
   authPathPrefix: "/auth",
   sessionStorage: new PrismaSessionStorage(prisma),
   distribution: AppDistribution.AppStore,
