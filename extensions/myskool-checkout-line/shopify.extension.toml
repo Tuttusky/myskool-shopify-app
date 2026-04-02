@@ -1,0 +1,21 @@
+# Checkout UI: show Myskool line item properties (Photo, Name, …) on checkout + order status.
+# https://shopify.dev/docs/api/checkout-ui-extensions/latest/configuration
+
+api_version = "2026-01"
+
+[[extensions]]
+name = "myskool-checkout-line"
+handle = "myskool-checkout-line"
+type = "ui_extension"
+uid = "ef4ffbdb-224d-349e-a0a3-0a76d47a5bd41ad38686"
+
+[[extensions.targeting]]
+module = "./src/Checkout.jsx"
+target = "purchase.checkout.cart-line-item.render-after"
+
+[[extensions.targeting]]
+module = "./src/Checkout.jsx"
+target = "purchase.thank-you.cart-line-item.render-after"
+
+[extensions.capabilities]
+api_access = false
